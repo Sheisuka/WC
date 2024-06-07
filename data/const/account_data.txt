@@ -1,0 +1,10 @@
+skywalker:gamer, tech geek
+oceandreamer:marine biologist, loves photos
+codeNinja:software dev, techie
+bookworm:lit major, book lover
+stargazer:amateur astro
+artlover:artist wannabe, gallery fan
+naturehiker:outdoor nut, hiker
+musicmaestro:music producer, plays instruments
+fitnessguru:personal trainer, fitness freak
+foodiefanatic:food blogger, restaurant reviewer
