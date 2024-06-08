@@ -20,33 +20,48 @@ class Warp:
         self.me = self.client.get_me()
 
     def get_users(self, total_limit=300):
+        logger.info(
+            f"@{self.me.username}: Старт, получение пользователей для взаймодействий. От 10 секунд до 1 минуты при дефолтных настройках кол-ва."
+        )
+
         users = []
-        fid = self.client.get_user_by_username(username=settings.donar_name).fid
-        cursor = None
+        donor_names = settings.donar_names
+        num_donors = len(donor_names)
+        limit_per_donor = total_limit // num_donors
 
-        self.client.send_device()
-        while len(users) < total_limit:
-            response = self.client.get_followers(fid=fid, cursor=cursor, limit=100)
+        for donor_name in donor_names:
+            fid = self.client.get_user_by_username(username=donor_name).fid
+            cursor = None
 
-            for user in response.users:
-                if (
-                    hasattr(user, "pfp")
-                    and user.pfp
-                    and user.pfp.url
-                    != "https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/3ffc18c3-e259-432c-8d42-5f07e140be00/rectcrop3"
-                ):
-                    users.append(user)
+            self.client.send_device()
+            while len(users) < limit_per_donor:
+                response = self.client.get_followers(fid=fid, cursor=cursor, limit=100)
 
-                    if len(users) >= total_limit:
-                        return users[:total_limit]
+                for user in response.users:
+                    if (
+                        hasattr(user, "pfp")
+                        and user.pfp
+                        and user.pfp.url
+                        != "https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/3ffc18c3-e259-432c-8d42-5f07e140be00/rectcrop3"
+                    ):
+                        users.append(user)
 
-            cursor = response.cursor
+                        if len(users) >= total_limit:
+                            logger.info(
+                                f"@{self.me.username}: Успешно собрали пользователей для взаймодействий."
+                            )
+                            return users[:total_limit]
 
-            if response.cursor is None:
-                break
+                cursor = response.cursor
 
-            time.sleep(1)
-        print(users)
+                if response.cursor is None:
+                    break
+
+                time.sleep(1)
+
+        logger.info(
+            f"@{self.me.username}: Успешно собрали пользователей для взаймодействий."
+        )
 
         return users[:total_limit]
 
@@ -155,7 +170,7 @@ class Warp:
                 logger.info(f"Попытка {retry}")
                 try:
                     text = self.client_gpt.get_msg(
-                        content=f"Напиши мне пост для твиттера на {self.language} языке без каких-либо дополнительных комментариев и тегов и не нужно оборачивать текст в кавычки"
+                        content=f"Напиши мне пост длиной не более 300 символов для твиттера на {self.language} языке без каких-либо дополнительных комментариев. Не используй хэштеги и символ решётки. Не нужно оборачивать текст в кавычки"
                     )
                     break
                 except Exception as e:
@@ -220,7 +235,7 @@ class Warp:
                 if len(cast.text) > 6:
                     if settings.gpt_use_on_comment_post:
                         logger.info(
-                            f"@{self.me.username} : Делаем тематический комент к посту"
+                            f"@{self.me.username} : {i}/{len(random_user_casts)} Делаем тематический комент к посту"
                         )
                         retry = 0
                         while True:
@@ -240,16 +255,24 @@ class Warp:
                                     break
                     else:
                         time.sleep(1)
-                self.client.post_cast(text=text, parent=cast.hash)
+
+                    self.client.post_cast(text=text, parent=cast.hash)
+                    logger.success(
+                        f"@{self.me.username} : Написали тематический коммент({text}) на рандомный пост ({cast.text}) от @{cast.author.username} это пост {i}/{len(random_user_casts)}"
+                    )
+
+                else:
+                    logger.info(
+                        f"@{self.me.username} : {i}/{len(random_user_casts)} Пост '{cast.text}' меньше 6 символов, на такие не пишем тематические коменты"
+                    )
 
                 random_time_sleep = random.randint(
                     settings.sl_inside_account[0], settings.sl_inside_account[1]
                 )
 
-                logger.success(
-                    f"@{self.me.username} : Написали тематический коммент({text}) на рандомный пост ({cast.text}) от @{cast.author.username} это пост {i}/{len(random_user_casts)}, спим {random_time_sleep} сек"
+                logger.info(
+                    f"@{self.me.username} : {i}/{len(random_user_casts)} спим {random_time_sleep} сек между постами"
                 )
-
                 time.sleep(random_time_sleep)
 
     def random_like(self, users: List):

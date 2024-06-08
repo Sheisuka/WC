@@ -8,23 +8,26 @@ from tinydb import Query, TinyDB
 
 from config import settings
 from models import Account
+from utils import prepare_data_from_txt
 from warp import Warp
 
 
 class WarpManager:
     def __init__(self):
-        self.db = TinyDB(settings.db_patch, ensure_ascii=False)
-        self.work_accounts = [Account(**item) for item in self.db.all()]
+        if settings.db_use:
+            self.db = TinyDB(settings.db_patch, ensure_ascii=False)
+            self.work_accounts = [Account(**item) for item in self.db.all()]
+        else:
+            self.work_accounts = prepare_data_from_txt()
         self.users = None
         self.work_methods = None
         self.account_data_str = None
 
     def update_db(self, address: str, variable_name: str, variable):
-        db = TinyDB(settings.db_patch, ensure_ascii=False)
         query = Query()
-        result = db.get(query.address == address)
+        result = self.db.get(query.address == address)
         if result:
-            db.update({variable_name: variable}, doc_ids=[result.doc_id])
+            self.db.update({variable_name: variable}, doc_ids=[result.doc_id])
 
     def random_sleep(self, name: str, text: str = None):
         rnd_time = random.randint(
@@ -74,11 +77,12 @@ class WarpManager:
                 cast_hash=thread_cast_hash, text=text
             )
 
-            self.update_db(
-                address=current_account.address,
-                variable_name="shadow_ban",
-                variable=check_status,
-            )
+            if settings.db_use:
+                self.update_db(
+                    address=current_account.address,
+                    variable_name="shadow_ban",
+                    variable=check_status,
+                )
 
             if check_status:
                 logger.error(f"{i}. {client.me.username} : Под теневым баном :(")
@@ -96,9 +100,10 @@ class WarpManager:
                 print(requests.get(settings.mobile_change_link).text)
 
             else:
-                sl_random_time = random.randint(5, 15)
-                logger.info(f"Спим между аками {sl_random_time} секунд")
-                time.sleep(sl_random_time)
+                if i < len(self.work_accounts):
+                    sl_random_time = random.randint(5, 15)
+                    logger.info(f"Спим между аками {sl_random_time} секунд")
+                    time.sleep(sl_random_time)
 
         logger.debug("-" * 50)
         logger.debug(
@@ -151,6 +156,7 @@ class WarpManager:
                     "perform_set_display_name_and_bio",
                     "perform_set_bio",
                     "perform_set_display_name",
+                    "post_random_message",
                 ]:
                     if not self.users:
                         self.users = client.get_users()
@@ -229,7 +235,6 @@ class WarpManager:
             action_type="perform_all_randomly",
         )
 
-    # не доделано
     def perform_set_display_name(self):
         change_type = "display_name"
         self.perform_action(
