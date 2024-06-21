@@ -1,10 +1,11 @@
 import itertools
 import os
 
+import questionary
 import requests
 from loguru import logger
 from tabulate import tabulate
-from tinydb import TinyDB
+from tinydb import JSONStorage, TinyDB
 
 from config import settings
 from models import Account
@@ -26,7 +27,8 @@ def print_on_table(data: list, headers: list):
 
 
 def show_table():
-    db = TinyDB(settings.db_patch, ensure_ascii=False)
+    db_patch = os.path.join(settings.db_dir, settings.db_file_name)
+    db = TinyDB(db_patch, storage=JSONStorage, ensure_ascii=False, encoding="utf-8")
     table_data = []
     headers = None
     for data in db.all():
@@ -42,16 +44,63 @@ def show_table():
 
 
 def prepare_data_on_db():
-    if not os.path.exists("/data/db/"):
-        os.mkdir("data/db/")
+    db_dir = settings.db_dir
+    db_file_name = settings.db_file_name
+    db_name, db_extension = db_file_name.split(".")
+    db_path = os.path.join(db_dir, db_name + "." + db_extension)
 
-    db = TinyDB(settings.db_patch, ensure_ascii=False)
+    if not os.path.exists(db_dir):
+        os.makedirs(db_dir)
 
-    with open("data/const/private_seeds.txt", "r", encoding="utf-8") as f:
-        private_seeds = f.read().splitlines()
+    if os.path.exists(db_path):
+        db = TinyDB(db_path, storage=JSONStorage, ensure_ascii=False, encoding="utf-8")
+        all_records = db.all()
+
+        if len(all_records) > 0:
+            usernames = [record.get("username") for record in all_records]
+            logger.error(
+                f"У вас уже есть созданная БД с {len(all_records)} аккаунтов: {', '.join(usernames)}"
+            )
+
+            choice = questionary.select(
+                "Что вы хотите сделать?",
+                choices=[
+                    "1. Дописать аккаунты в текущую базу данных",
+                    "2. Создать новую базу данных",
+                ],
+                instruction="(Используйте стрелки для переключения)",
+                pointer="🥎",
+            ).ask()
+
+            if choice.split(".")[0] == "2":
+                i = 1
+                while os.path.exists(
+                    os.path.join(db_dir, f"{db_name}{i}.{db_extension}")
+                ):
+                    i += 1
+
+                db_path = os.path.join(db_dir, f"{db_name}{i}.{db_extension}")
+                db = TinyDB(
+                    db_path, storage=JSONStorage, ensure_ascii=False, encoding="utf-8"
+                )
+
+                logger.success(f"Создана новая база данных: {db_path}")
+
+            elif choice.split(".")[0] == "1":
+                logger.success(f"Дописываем в текущую базу данных: {db_path}")
+
+    else:
+        db = TinyDB(db_path, storage=JSONStorage, ensure_ascii=False, encoding="utf-8")
+
+    try:
+        with open("data/const/private_seeds.txt", "r", encoding="utf-8") as f:
+            private_seeds = f.read().splitlines()
+    except FileNotFoundError:
+        logger.error("Файл private_seeds.txt не найден!")
+        return
 
     if not private_seeds:
-        raise ValueError("Фаил с сидками не может быть пустым!")
+        raise ValueError("Файл с сидками не может быть пустым!")
 
     try:
         with open("data/const/languages.txt", "r", encoding="utf-8") as f:
@@ -63,6 +112,7 @@ def prepare_data_on_db():
             )
     except FileNotFoundError:
         language = []
+        language_cycle = itertools.cycle(language)
 
     if settings.proxy:
         try:
@@ -91,10 +141,11 @@ def prepare_data_on_db():
 
     table_data = []
     headers = None
+    logger.debug(f"Добавляем в базу данных {len(private_seeds)} аккаунта(-ов)")
     for i, ps in enumerate(private_seeds, 1):
         proxy = next(proxy_cycle, None)
         role = next(role_cycle, None)
-        language = next(language_cycle, None)
+        language, post_max_symbol_limit = next(language_cycle, None).split(":")
 
         account = Account(ps=ps, proxy=proxy, role=role)
         client = Warp(account=account)
@@ -103,6 +154,7 @@ def prepare_data_on_db():
             username=client.me.username,
             bio=client.me.profile.bio.text,
             language=language,
+            post_max_symbol_limit=post_max_symbol_limit,
             follower_count=client.me.follower_count,
             following_count=client.me.following_count,
             ps=ps,
@@ -111,6 +163,9 @@ def prepare_data_on_db():
         )
 
         db.insert(account.model_dump())
+        logger.info(
+            f"Добавили {i}/{len(private_seeds)} - {account.display_name} (@{account.username})"
+        )
 
         if not headers:
             headers = account.to_list_headers()
@@ -120,8 +175,8 @@ def prepare_data_on_db():
 
         if settings.mobile_proxy:
             logger.warning("Меняем ip у мобильной прокси при добавлении аккаунтов в бд")
-
             print(requests.get(settings.mobile_change_link).text)
+
     print_on_table(data=table_data, headers=headers)
 
 
@@ -165,7 +220,15 @@ def prepare_data_from_txt():
     for i, ps in enumerate(private_seeds, 1):
         proxy = next(proxy_cycle, None)
         role = next(role_cycle, None)
-        language = next(language_cycle, None)
-        account_list.append(Account(ps=ps, proxy=proxy, role=role, language=language))
+        language, max_symbol_limit = next(language_cycle, None).split(":")
+        account_list.append(
+            Account(
+                ps=ps,
+                proxy=proxy,
+                role=role,
+                language=language,
+                post_max_symbol_limit=max_symbol_limit,
+            )
+        )
 
     return account_list

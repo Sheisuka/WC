@@ -20,24 +20,41 @@ class GptClient:
             )
         else:
             self.client = Client(
-                proxies="http://{proxy}" if proxy else proxy,
+                proxies=f"http://{proxy}" if proxy else proxy,
                 provider=RetryProvider([Phind, FreeChatgpt, Liaobots], shuffle=False),
             )
         self.role = role
 
-    def get_context_comment(self, post: str):
+    def get_context_comment_by_language(
+        self, post: str, language: str, max_symbol_limit: int = 250
+    ):
         response = self.client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {
                     "role": "system",
-                    "content": "Определи язык следующего поста и напиши тематический комментарий на этом языке. Верни только комментарий длиной не более 300 символов без дополнительных пояснений и не оборачивай его в кавычки.",
+                    "content": f"{self.role} Напиши тематический комментарий на {language} языке. Верни только комментарий без дополнительных пояснений и не оборачивай его в кавычки. Длина комментария должна быть не более {max_symbol_limit} символов включая пробелы.",
                 },
                 {"role": "user", "content": f"Пост: {post}\n\nКомментарий:"},
             ],
-            max_tokens=50,
+            # max_tokens=50,
             temperature=0.7,
-            stop=["Комментарий:"],
+            stop=["Комментарий:", "#"],
+        )
+        return response.choices[0].message.content
+
+    def get_context_comment(self, post: str, max_symbol_limit: int = 250):
+        response = self.client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"{self.role} Определи язык следующего поста и напиши тематический комментарий на этом языке. Верни только комментарий длиной не более {max_symbol_limit} символов без дополнительных пояснений и не оборачивай его в кавычки.",
+                },
+                {"role": "user", "content": f"Пост: {post}\n\nКомментарий:"},
+            ],
+            temperature=0.7,
+            stop=["Комментарий:", "#"],
         )
         return response.choices[0].message.content
 
@@ -54,7 +71,7 @@ class GptClient:
                     "content": content,
                 },
             ],
-            max_tokens=50,
             temperature=0.7,
+            stop=["#"],
         )
         return response.choices[0].message.content

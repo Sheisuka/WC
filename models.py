@@ -22,6 +22,7 @@ class Account(BaseModel):
     address: Optional[str] = None
     bio: Optional[str] = None
     language: Optional[str] = None
+    post_max_symbol_limit: Optional[int] = None
     shadow_ban: Optional[bool] = None
     follower_count: Optional[int] = None
     following_count: Optional[int] = None

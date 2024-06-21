@@ -15,6 +15,7 @@ class Warp:
         self.client = WarpModified(mnemonic=account.ps, proxy=account.proxy)
         self.client_gpt = GptClient(role=account.role)
         self.language = account.language
+        self.post_max_symbol_limit = account.post_max_symbol_limit
         self.text = text
         time.sleep(0.5)
         self.me = self.client.get_me()
@@ -43,6 +44,7 @@ class Warp:
                         and user.pfp
                         and user.pfp.url
                         != "https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/3ffc18c3-e259-432c-8d42-5f07e140be00/rectcrop3"
+                        and user.fid != self.me.fid
                     ):
                         users.append(user)
 
@@ -109,8 +111,9 @@ class Warp:
             match change_type:
                 case "all":
                     text = self.client_gpt.get_msg(
-                        content=f"Напиши мне никнейм и очень короткую биографию на 2-4 лова на {self.language} языке нужно добавить небрежности. что бы она выглядела более натурально, например писать с маленькой буквы или допускать сленговые выражение или даже ошибки. ответ верни формате: имя:биография без дополнительных кавычек"
+                        content=f"Напиши мне никнейм и очень короткую биографию на 2-4 cлова на {self.language} языке нужно добавить небрежности. что бы она выглядела более натурально, например писать с маленькой буквы или допускать сленговые выражение или даже ошибки. Ответ без дополнительных кавычек и в формате: имя:биография"
                     )
+                    logger.info(f"@{self.me.username} : Получили от gpt ответ {text}")
                     display_name, bio = text.split(":")
                     logger.info(
                         f"@{self.me.username} : Заполняем имя {display_name} и био {bio} с помощью GPT"
@@ -118,7 +121,7 @@ class Warp:
 
                 case "display_name":
                     text = self.client_gpt.get_msg(
-                        content="Напиши мне никнеймнужно добавить небрежности. что бы он выглядел более натурально, например писать с маленькой буквы или допускать сленговые выражение или даже ошибки. в ответ верни только без дополнительных кавычек и дополнительных комментариев"
+                        content="Напиши мне никнейм. Добавь небрежности, что бы он выглядел более натурально, например напиши с маленькой буквы или можно использовать сленговые выражение или даже ошибки. В ответ верни только никнейм без дополнительных кавычек и дополнительных комментариев."
                     )
                     display_name = text
                     logger.info(
@@ -165,25 +168,53 @@ class Warp:
                 f"@{self.me.username} : Делаем пост через ГПТ на {self.language} языке"
             )
             retry = 0
+
             while True:
                 retry += 1
-                logger.info(f"Попытка {retry}")
+                logger.info(
+                    f"Попытка {retry}/{settings.max_retry} | Лимит символов {self.post_max_symbol_limit} | Язык {self.language}"
+                )
                 try:
                     text = self.client_gpt.get_msg(
-                        content=f"Напиши мне пост длиной не более 300 символов для твиттера на {self.language} языке без каких-либо дополнительных комментариев. Не используй хэштеги и символ решётки. Не нужно оборачивать текст в кавычки"
+                        content=f"Напиши мне пост на {self.language} языке без каких-либо дополнительных комментариев. Не используй хэштеги и символ решётки. Не нужно оборачивать текст в кавычки. Общая длина не более {self.post_max_symbol_limit} символов включая пробелы."
                     )
-                    break
+
+                    logger.info(f"{text} -> ({len(text)})")
+                    if 10 < len(text) < self.post_max_symbol_limit:
+                        break
+                    else:
+                        logger.error(
+                            f"@{self.me.username} : ('{text}' -> {len(text)} символов) : Длина сообщения которое написал gpt меньше 10 или больше {self.post_max_symbol_limit} символов, попробуем сделать запрос к гпт еще раз."
+                        )
+
                 except Exception as e:
                     logger.error(f"При запросе к GPT случилась ошибка: {e}")
                     logger.info("Поспим 10 секунд и попробуем еще раз")
                     time.sleep(10)
-                    if retry > 3:
+                    if retry > settings.max_retry:
                         break
         else:
             text = self.text
             logger.info(f"@{self.me.username} : Берем пост из post.txt")
 
-        self.client.post_cast(text=text)
+        for i, _ in enumerate(range(settings.max_retry), 1):
+            try:
+                self.client.post_cast(text=text)
+                break
+
+            except Exception as e:
+                logger.error(e)
+                rnd_sleep_time = random.randint(5, 15)
+
+                logger.error(
+                    f"@{self.me.username} : Ошибка при отправке рандомного поста ({text}), попытка {i}/{settings.max_retry} - спим {rnd_sleep_time} и попробуем еще раз"
+                )
+
+                time.sleep(rnd_sleep_time)
+                if i == settings.max_retry:
+                    raise Exception(
+                        f"Так и не получилось отправить пост за {settings.max_retry} попыток"
+                    )
 
         random_time_sleep = random.randint(
             settings.sl_inside_account[0], settings.sl_inside_account[1]
@@ -237,29 +268,66 @@ class Warp:
                         logger.info(
                             f"@{self.me.username} : {i}/{len(random_user_casts)} Делаем тематический комент к посту"
                         )
+
                         retry = 0
                         while True:
                             retry += 1
-                            logger.info(f"Попытка {retry}")
+                            logger.info(
+                                f"Попытка {retry}/{settings.max_retry} | Лимит символов {self.post_max_symbol_limit} | Язык {self.language}"
+                            )
                             try:
-                                text = self.client_gpt.get_context_comment(
-                                    post=cast.text
-                                )
-                                break
+                                if settings.gpt_use_language_on_comment_post:
+                                    text = (
+                                        self.client_gpt.get_context_comment_by_language(
+                                            post=cast.text,
+                                            language=self.language,
+                                            max_symbol_limit=self.post_max_symbol_limit,
+                                        )
+                                    )
+                                else:
+                                    text = self.client_gpt.get_context_comment(
+                                        post=cast.text,
+                                        max_symbol_limit=self.post_max_symbol_limit,
+                                    )
+
+                                logger.info(f"{text} -> ({len(text)})")
+                                if 10 < len(text) < self.post_max_symbol_limit:
+                                    break
+                                else:
+                                    logger.error(
+                                        f"@{self.me.username} : ('{text}' -> {len(text)} символов) : Длина сообщения которое написал gpt меньше 10 символов или больше {self.post_max_symbol_limit} символов, попробуем сделать запрос к гпт еще раз."
+                                    )
 
                             except Exception as e:
                                 logger.error(f"При запросе к GPT случилась ошибка: {e}")
                                 logger.info("Поспим 10 секунд и попробуем еще раз")
                                 time.sleep(10)
-                                if retry > 3:
+                                if retry > settings.max_retry:
                                     break
                     else:
-                        time.sleep(1)
+                        raise Exception("Писать коменты к постам можно только с ГПТ")
 
-                    self.client.post_cast(text=text, parent=cast.hash)
-                    logger.success(
-                        f"@{self.me.username} : Написали тематический коммент({text}) на рандомный пост ({cast.text}) от @{cast.author.username} это пост {i}/{len(random_user_casts)}"
-                    )
+                    for i, _ in enumerate(range(settings.max_retry), 1):
+                        try:
+                            self.client.post_cast(text=text, parent=cast.hash)
+                            logger.success(
+                                f"@{self.me.username} : Написали тематический коммент({text}) на рандомный пост ({cast.text}) от @{cast.author.username} это пост {i}/{len(random_user_casts)}"
+                            )
+                            break
+
+                        except Exception as e:
+                            logger.error(e)
+                            rnd_sleep_time = random.randint(5, 15)
+
+                            logger.error(
+                                f"@{self.me.username} : Ошибка при написании тематического комметария ({text}), попытка {i}/{settings.max_retry} - спим {rnd_sleep_time} и попробуем еще раз"
+                            )
+
+                            time.sleep(rnd_sleep_time)
+                            if i == settings.max_retry:
+                                raise Exception(
+                                    f"Так и не получилось отпавить тематический комментарий за {settings.max_retry} попыток"
+                                )
 
                 else:
                     logger.info(
@@ -313,7 +381,24 @@ class Warp:
                     ]
                 )
 
-                self.client.like_cast(cast.hash)
+                for ii, _ in enumerate(range(settings.max_retry), 1):
+                    try:
+                        self.client.like_cast(cast.hash)
+                        break
+
+                    except Exception as e:
+                        logger.error(e)
+                        rnd_sleep_time = random.randint(5, 15)
+
+                        logger.error(
+                            f"@{self.me.username} : Ошибка при отправке рандомного лайка, попытка {ii}/{settings.max_retry} - спим {rnd_sleep_time} и попробуем еще раз"
+                        )
+
+                        time.sleep(rnd_sleep_time)
+                        if ii == settings.max_retry:
+                            raise Exception(
+                                f"Так и не получилось отправить лайк за {settings.max_retry} попыток"
+                            )
 
                 random_time_sleep = random.randint(
                     settings.sl_inside_account[0], settings.sl_inside_account[1]
@@ -333,7 +418,24 @@ class Warp:
         random_users = random.sample(users, how_follow)
 
         for i, user in enumerate(random_users, 1):
-            self.client.follow_user(user.fid)
+            for ii, _ in enumerate(range(settings.max_retry), 1):
+                try:
+                    self.client.follow_user(user.fid)
+                    break
+
+                except Exception as e:
+                    logger.error(e)
+                    rnd_sleep_time = random.randint(5, 15)
+
+                    logger.error(
+                        f"@{self.me.username} : Ошибка при отправке рандомной подписки, попытка {ii}/{settings.max_retry} - спим {rnd_sleep_time} и попробуем еще раз"
+                    )
+
+                    time.sleep(rnd_sleep_time)
+                    if ii == settings.max_retry:
+                        raise Exception(
+                            f"Так и не получилось подписаться на радономного человека за {settings.max_retry} попыток"
+                        )
 
             random_time_sleep = random.randint(
                 settings.sl_inside_account[0], settings.sl_inside_account[1]
@@ -387,13 +489,13 @@ class Warp:
         if isinstance(work_methods, list):
             random.shuffle(work_methods)
         else:
-            work_methods = list(work_methods)
+            work_methods = [
+                work_methods,
+            ]
 
-        i = 0
-        for choise_method in work_methods:
+        for i, choise_method in enumerate(work_methods, 1):
             name, method, params = methods[choise_method]
 
-            i += 1
             method(*params)
 
             random_time_sleep = random.randint(

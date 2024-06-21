@@ -1,10 +1,11 @@
 import itertools
+import os
 import random
 import time
 
 import requests
 from loguru import logger
-from tinydb import Query, TinyDB
+from tinydb import JSONStorage, Query, TinyDB
 
 from config import settings
 from models import Account
@@ -15,7 +16,10 @@ from warp import Warp
 class WarpManager:
     def __init__(self):
         if settings.db_use:
-            self.db = TinyDB(settings.db_patch, ensure_ascii=False)
+            db_patch = os.path.join(settings.db_dir, settings.db_file_name)
+            self.db = TinyDB(
+                db_patch, storage=JSONStorage, ensure_ascii=False, encoding="utf-8"
+            )
             self.work_accounts = [Account(**item) for item in self.db.all()]
         else:
             self.work_accounts = prepare_data_from_txt()

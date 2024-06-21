@@ -6,7 +6,7 @@ from manager_account import WarpManager
 from utils import prepare_data_on_db, show_table
 
 if __name__ == "__main__":
-    bd_menu_str = f"из базы данных '{settings.db_patch}': db_use = True"
+    bd_menu_str = f"из базы данных '{settings.db_file_name}': db_use = True"
     choice = questionary.select(
         "Что будем делать для каждого аккаунта Warpcast?",
         choices=[
@@ -81,8 +81,8 @@ if __name__ == "__main__":
 
         case "11":
             prepare_data_on_db()
-            logger.success(
-                "Успешно созданил базу данных! Не забудь в конфиге поставить db_use = True, что бы данные брались из бд. Перезапустите софт, что начать работу с аккаунтами."
+            logger.warning(
+                "Не забудь в конфиге поставить db_use = True, что бы данные брались из бд. Перезапустите софт, что начать работу с аккаунтами."
             )
 
         case "12":
